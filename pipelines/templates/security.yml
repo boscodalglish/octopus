@@ -1,0 +1,14 @@
+steps:
+  - bash: |
+      bash scripts/install-trivy.sh "$(Agent.TempDirectory)/trivy"
+      echo "##vso[task.prependpath]$(Agent.TempDirectory)/trivy"
+    displayName: Install pinned Trivy with checksum verification
+  - bash: |
+      mkdir -p "$(Build.ArtifactStagingDirectory)/security"
+      trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL         --skip-dirs .git --skip-dirs .tools --skip-dirs artifacts         --skip-dirs '**/.terraform' --skip-dirs '**/bin' --skip-dirs '**/obj'         --ignorefile .trivyignore.yaml --format json         --output "$(Build.ArtifactStagingDirectory)/security/trivy.json" --exit-code 1 .
+    displayName: Gate high and critical dependency, secret and IaC findings
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/security'
+      artifact: security-results

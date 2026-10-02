@@ -1,0 +1,67 @@
+# Azure Repos PR validation is configured by Terraform branch policy, not `pr:`.
+trigger:
+  branches:
+    include: [main]
+pool:
+  vmImage: ubuntu-24.04
+parameters:
+  - name: initialDeployment
+    type: boolean
+    default: false
+    displayName: First deployment to a verified empty app (no rollback target)
+variables:
+  - name: DOTNET_CLI_TELEMETRY_OPTOUT
+    value: '1'
+  - name: CI
+    value: 'true'
+stages:
+  - stage: Validate
+    displayName: Build, test and scan
+    jobs:
+      - job: Validate
+        steps:
+          - checkout: self
+            persistCredentials: false
+          - template: templates/build.yml
+          - template: templates/validate-infrastructure.yml
+          - template: templates/security.yml
+  - stage: Release
+    displayName: Approved staging-to-live release
+    dependsOn: Validate
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    lockBehavior: sequential
+    jobs:
+      - deployment: Deploy
+        environment: $(releaseEnvironment)
+        timeoutInMinutes: 30
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  persistCredentials: false
+                - download: none
+                - download: current
+                  artifact: application
+                - download: current
+                  artifact: checksum
+                - download: current
+                  artifact: release-identity
+                - bash: |
+                    cd "$(Pipeline.Workspace)/application"
+                    sha256sum --check "$(Pipeline.Workspace)/checksum/application.zip.sha256"
+                    test "$(cat "$(Pipeline.Workspace)/release-identity/commit.txt")" = "$BUILD_SOURCEVERSION"
+                  displayName: Verify artifact integrity and provenance
+                - task: AzureCLI@2
+                  displayName: Deploy staging, verify, swap, verify live and recover on failure
+                  inputs:
+                    azureSubscription: $(applicationServiceConnection)
+                    scriptType: bash
+                    scriptLocation: scriptPath
+                    scriptPath: scripts/release.sh
+                  env:
+                    RESOURCE_GROUP: $(resourceGroupName)
+                    APP_NAME: $(applicationName)
+                    EXPECTED_COMMIT: $(Build.SourceVersion)
+                    PACKAGE_PATH: $(Pipeline.Workspace)/application/application.zip
+                    ALLOW_INITIAL_DEPLOYMENT: '${{ parameters.initialDeployment }}'

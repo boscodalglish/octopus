@@ -1,0 +1,14 @@
+steps:
+  - bash: |
+      bash scripts/install-terraform.sh "$(Agent.TempDirectory)/terraform"
+      echo "##vso[task.prependpath]$(Agent.TempDirectory)/terraform"
+    displayName: Install pinned Terraform with checksum verification
+  - bash: |
+      terraform fmt -check -recursive infrastructure
+      for root in infrastructure/bootstrap infrastructure/environments/demo; do
+        terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
+        terraform -chdir="$root" validate
+      done
+      terraform -chdir=infrastructure/bootstrap test
+      terraform -chdir=infrastructure/environments/demo test
+    displayName: Validate both roots and run mocked security assertions

@@ -1,0 +1,40 @@
+steps:
+  - task: UseDotNet@2
+    displayName: Install pinned .NET SDK
+    inputs:
+      packageType: sdk
+      useGlobalJson: true
+  - bash: dotnet restore Octo.slnx --locked-mode
+    displayName: Restore locked dependencies and audit vulnerabilities
+  - bash: dotnet build Octo.slnx -c Release --no-restore -p:SourceRevisionId="$BUILD_SOURCEVERSION"
+    displayName: Build with commit identity and compiler analyzers
+  - bash: dotnet test Octo.slnx -c Release --no-build --logger trx --results-directory "$(Agent.TempDirectory)/test-results"
+    displayName: Run application integration tests
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: VSTest
+      testResultsFiles: '$(Agent.TempDirectory)/test-results/*.trx'
+      failTaskOnFailedTests: true
+  - bash: python3 -m unittest discover -s scripts/tests -v
+    displayName: Test release verification and recovery logic
+  - bash: |
+      dotnet publish src/Octo.Api/Octo.Api.csproj -c Release --no-build --no-restore -o "$(Build.ArtifactStagingDirectory)/publish"
+      cd "$(Build.ArtifactStagingDirectory)/publish"
+      zip -qr "$(Build.ArtifactStagingDirectory)/application.zip" .
+      cd "$(Build.ArtifactStagingDirectory)"
+      sha256sum application.zip > application.zip.sha256
+      printf '%s\n' "$BUILD_SOURCEVERSION" > commit.txt
+    displayName: Package the tested build once
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/application.zip'
+      artifact: application
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/application.zip.sha256'
+      artifact: checksum
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/commit.txt'
+      artifact: release-identity

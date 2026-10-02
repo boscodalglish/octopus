@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Octo.Api/Octo.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Octo.Api.Tests/Octo.Api.Tests.csproj" />
+  </Folder>
+</Solution>

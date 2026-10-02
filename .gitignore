@@ -1,0 +1,27 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+TestResults/
+artifacts/
+.tools/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+*.backend.hcl
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+*.trx
+crash.log
+**/__pycache__/
+*.backend.json
+
+# Personal interview preparation; keep local only.
+interview-guide.md

@@ -1,0 +1,76 @@
+trigger: none
+pool:
+  vmImage: ubuntu-24.04
+stages:
+  - stage: Plan
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+    jobs:
+      - job: Plan
+        steps:
+          - checkout: self
+            persistCredentials: false
+          - template: templates/validate-infrastructure.yml
+          - bash: python3 scripts/write-platform-inputs.py
+            displayName: Write nonsecret platform inputs
+            env:
+              DEPLOY_SUBSCRIPTION_ID: $(subscriptionId)
+              DEPLOY_APP_NAME: $(applicationName)
+              DEPLOY_RESOURCE_GROUP: $(resourceGroupName)
+              DEPLOY_LOCATION: $(location)
+              DEPLOY_LIVE_IDENTITY: $(liveIdentityId)
+              DEPLOY_STAGING_IDENTITY: $(stagingIdentityId)
+              DEPLOY_ALERT_EMAIL: $(alertEmail)
+          - task: AzureCLI@2
+            displayName: Create saved infrastructure plan
+            inputs:
+              azureSubscription: $(infrastructureServiceConnection)
+              addSpnToEnvironment: true
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                source scripts/terraform-auth.sh
+                terraform -chdir=infrastructure/environments/demo init -input=false -lockfile=readonly                   -backend-config="storage_account_name=$STATE_ACCOUNT"                   -backend-config=container_name=platform -backend-config=key=demo.tfstate                   -backend-config=use_azuread_auth=true
+                mkdir -p "$(Build.ArtifactStagingDirectory)/plan"
+                terraform -chdir=infrastructure/environments/demo plan -input=false -lock-timeout=5m                   -out="$(Build.ArtifactStagingDirectory)/plan/platform.tfplan"
+                terraform -chdir=infrastructure/environments/demo show -no-color                   "$(Build.ArtifactStagingDirectory)/plan/platform.tfplan" > "$(Build.ArtifactStagingDirectory)/plan/plan.txt"
+            env:
+              STATE_ACCOUNT: $(stateAccountName)
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/plan'
+              artifact: terraform-plan
+  - stage: Apply
+    dependsOn: Plan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    lockBehavior: sequential
+    jobs:
+      - deployment: Apply
+        environment: $(infrastructureEnvironment)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  persistCredentials: false
+                - download: none
+                - download: current
+                  artifact: terraform-plan
+                - bash: |
+                    bash scripts/install-terraform.sh "$(Agent.TempDirectory)/terraform"
+                    echo "##vso[task.prependpath]$(Agent.TempDirectory)/terraform"
+                  displayName: Install matching Terraform version
+                - task: AzureCLI@2
+                  displayName: Apply the approved saved plan
+                  inputs:
+                    azureSubscription: $(infrastructureServiceConnection)
+                    addSpnToEnvironment: true
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      source scripts/terraform-auth.sh
+                      terraform -chdir=infrastructure/environments/demo init -input=false -lockfile=readonly                         -backend-config="storage_account_name=$STATE_ACCOUNT"                         -backend-config=container_name=platform -backend-config=key=demo.tfstate                         -backend-config=use_azuread_auth=true
+                      terraform -chdir=infrastructure/environments/demo apply -input=false -lock-timeout=5m                         "$(Pipeline.Workspace)/terraform-plan/platform.tfplan"
+                  env:
+                    STATE_ACCOUNT: $(stateAccountName)

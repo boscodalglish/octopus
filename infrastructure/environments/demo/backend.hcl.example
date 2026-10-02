@@ -1,0 +1,4 @@
+storage_account_name = "octodemouniquestate"
+container_name       = "platform"
+key                  = "demo.tfstate"
+use_azuread_auth      = true

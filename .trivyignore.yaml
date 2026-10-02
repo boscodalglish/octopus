@@ -1,0 +1,8 @@
+# This exception is restricted to the disposable, synthetic-data demo backend.
+# It must be reviewed before expiry; see docs/security.md.
+misconfigurations:
+  - id: AZU-0012
+    paths:
+      - infrastructure/modules/foundation/main.tf
+    statement: Microsoft-hosted runners require public backend reachability. Entra RBAC, TLS, private containers and disabled account keys protect data access. Production requires private runners and a private endpoint.
+    expired_at: 2026-10-31
